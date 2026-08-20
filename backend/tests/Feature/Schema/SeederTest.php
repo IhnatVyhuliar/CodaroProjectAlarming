@@ -58,6 +58,16 @@ it('defaults the global queue to fifo', function () {
     expect(Setting::queueSortMode())->toBe(QueueSortMode::Fifo);
 });
 
+it('does not clobber a queue sort mode already chosen by a hyperadmin', function () {
+    $this->seed(SettingSeeder::class);
+
+    Setting::setQueueSortMode(QueueSortMode::AiPriority);
+
+    $this->seed(SettingSeeder::class);
+
+    expect(Setting::queueSortMode())->toBe(QueueSortMode::AiPriority);
+});
+
 it('seeds one user per role with a known password', function () {
     $this->seed();
 
@@ -90,4 +100,24 @@ it('gives demo reports the media a field worker would see', function () {
     expect(Attachment::query()->voiceNotes()->count())->toBeGreaterThan(0);
     expect(LocationPing::query()->count())->toBeGreaterThan(0);
     expect(Report::query()->whereHas('requests')->count())->toBeGreaterThan(0);
+});
+
+it('assigns demo reports to real seeded admins instead of minting throwaway ones', function () {
+    $this->seed();
+
+    // Exactly the two admins from UserSeeder — no phantom admins minted by
+    // factory states like inProgress()/waiting()/closed() defaulting their
+    // admin to a fresh User::factory()->admin().
+    expect(User::query()->role(UserRole::Admin)->count())->toBe(2);
+
+    $seededAdminIds = User::query()->role(UserRole::Admin)->pluck('id');
+
+    $assignedAdminIds = Report::query()
+        ->where('status', '!=', ReportStatus::New)
+        ->where('status', '!=', ReportStatus::Rejected)
+        ->pluck('assigned_admin_id');
+
+    expect($assignedAdminIds)->each(
+        fn ($id) => $id->toBeIn($seededAdminIds->all())
+    );
 });

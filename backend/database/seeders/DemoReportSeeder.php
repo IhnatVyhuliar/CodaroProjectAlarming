@@ -71,9 +71,22 @@ class DemoReportSeeder extends Seeder
             ReportStatus::Closed, ReportStatus::Rejected,
         ];
 
+        // Statuses reached only via the `assigned()` state (directly or
+        // chained through inProgress/waiting/closed) need a real admin
+        // passed explicitly — otherwise the factory's default
+        // `User::factory()->admin()` mints a throwaway admin per report.
+        $needsAdmin = [
+            ReportStatus::Assigned->value => true,
+            ReportStatus::InProgress->value => true,
+            ReportStatus::Waiting->value => true,
+            ReportStatus::Closed->value => true,
+        ];
+
         foreach ($inFlight as $i => $status) {
+            $admin = $admins->random();
+
             $factory = match ($status) {
-                ReportStatus::Assigned => Report::factory()->assigned($admins->random()),
+                ReportStatus::Assigned => Report::factory()->assigned($admin),
                 ReportStatus::InProgress => Report::factory()->inProgress(),
                 ReportStatus::Waiting => Report::factory()->waiting(),
                 ReportStatus::Closed => Report::factory()->closed(),
@@ -87,6 +100,7 @@ class DemoReportSeeder extends Seeder
                 'assigned_staff_id' => $staff->isNotEmpty() ? $staff->random()->id : null,
                 'queued_at' => now()->subHours($i + 1),
                 'created_at' => now()->subHours($i + 1),
+                ...(($needsAdmin[$status->value] ?? false) ? ['assigned_admin_id' => $admin->id] : []),
             ]);
 
             ReportStatusHistory::create([
@@ -115,10 +129,21 @@ class DemoReportSeeder extends Seeder
         }
 
         // One report transmitting live, with a location trail behind it.
+        $streamingAdmin = $admins->random();
+
         $streaming = Report::factory()->inProgress()->streamingLocation()->create([
             'client_id' => $clients->random()->id,
             'category_id' => $categories->random()->id,
+            'assigned_admin_id' => $streamingAdmin->id,
             'assigned_staff_id' => $staff->isNotEmpty() ? $staff->random()->id : null,
+        ]);
+
+        ReportStatusHistory::create([
+            'report_id' => $streaming->id,
+            'from_status' => ReportStatus::New,
+            'to_status' => ReportStatus::InProgress,
+            'changed_by_user_id' => $streamingAdmin->id,
+            'context' => ['source' => 'seed'],
         ]);
 
         $stream = LocationStream::factory()->create([
