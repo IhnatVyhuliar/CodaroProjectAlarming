@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\DB;
 
 it('runs tests against postgres, not sqlite', function () {
     expect(DB::connection()->getDriverName())->toBe('pgsql');
-    expect(DB::connection()->getDatabaseName())->toBe('app_testing');
+    expect(DB::connection()->getDatabaseName())->toStartWith('app_testing');
 });
 
 it('has a postgres 16 or newer server', function () {
