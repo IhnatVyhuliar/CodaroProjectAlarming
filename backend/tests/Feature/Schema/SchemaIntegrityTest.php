@@ -5,6 +5,8 @@ use App\Models\Attachment;
 use App\Models\LocationPing;
 use App\Models\MediaStreamSession;
 use App\Models\Report;
+use App\Models\ReportAssignment;
+use App\Models\ReportRevision;
 use App\Models\ReportStatusHistory;
 use App\Models\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +40,7 @@ it('protects every lifecycle column with a check constraint', function (string $
     ['reports', 'priority'],
     ['reports', 'location_mode'],
     ['requests', 'status'],
+    ['report_status_histories', 'from_status'],
     ['report_status_histories', 'to_status'],
     ['report_assignments', 'role'],
     ['attachments', 'type'],
@@ -81,10 +84,18 @@ it('cascades a report deletion through every child table', function () {
         'report_id' => $report->id,
         'to_status' => ReportStatus::New,
     ]);
+    ReportRevision::create([
+        'report_id' => $report->id,
+        'changes' => ['status' => ['old' => null, 'new' => ReportStatus::New->value]],
+    ]);
+    ReportAssignment::factory()->create(['report_id' => $report->id]);
 
     $report->forceDelete();
 
-    foreach (['requests', 'attachments', 'location_pings', 'media_stream_sessions', 'report_status_histories'] as $table) {
+    foreach ([
+        'requests', 'attachments', 'location_pings', 'media_stream_sessions',
+        'report_status_histories', 'report_revisions', 'report_assignments',
+    ] as $table) {
         expect(DB::table($table)->count())->toBe(0, "{$table} was not cascaded");
     }
 });

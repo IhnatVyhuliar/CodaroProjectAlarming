@@ -64,7 +64,7 @@ Warstwa domenowa nazywana jest po polsku w rozmowach z klientem/produktem, ale k
 | Typ żądania                       | `RequestType`            | tabela danych (nie enum), typ pod-zadania w ramach `Request` |
 | Ustawienie globalne               | `Setting`                | wiersz klucz/wartość, np. `queue.sort_mode` — patrz sekcja 7 |
 | Token urządzenia                  | `DeviceToken`            | jeden na urządzenie, zastępuje `User.push_token` — patrz sekcja 10 |
-| Historia edycji                   | `ReportRevision`         | append-only, zmiany pól zgłoszenia — inna sprawa niż `ReportStatusHistory` |
+| Historia edycji                   | `ReportRevision`         | append-only, zmiany pól zgłoszenia — osobno od `ReportStatusHistory` |
 | Historia przypisań                | `ReportAssignment`       | append-only, źródło analityki obciążenia adminów/ratowników |
 
 ---
@@ -288,7 +288,7 @@ natychmiast wszystkich adminów (broadcast `QueueSortModeChanged`).
 Wyliczanie `ai_priority` uruchamiane jako **Job w kolejce** (nie synchronicznie przy
 tworzeniu zgłoszenia), żeby nie blokować requestu tworzącego zgłoszenie. Dopóki
 `ai_priority` nie zostanie policzone, sortowanie "według AI" traktuje brakującą
-wartość jako najniższy priorytet i dosortowuje takie zgłoszenia po `created_at`
+wartość jako najniższy priorytet i dosortowuje takie zgłoszenia po `queued_at`
 (fallback).
 
 Hiperadmin widzi kolejki wszystkich adminów + statystyki (czas reakcji, obciążenie),
