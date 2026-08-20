@@ -240,6 +240,11 @@ middleware roli. Po stronie mobile: warunkowe routy w Expo Router per grupa `(ad
 
 ## 6. Cykl życia zgłoszenia (status flow)
 
+> **AKTUALIZACJA (patrz sekcja 22):** statusy zgłoszeń i requestów **nie są** zbiorem sztywnym.
+> Tworzą je osobne seedery (`StatusDefinition` + `StatusTransition`), a dozwolone przejścia zwraca
+> API per użytkownik. Poniższy diagram jest wyłącznie przykładem domyślnego zestawu — frontend
+> **nigdy** nie zakłada nazw ani kluczy statusów.
+
 ```
 new ──► assigned ──► in_progress ──► waiting ──► closed
   │                        │                        ▲
@@ -719,3 +724,90 @@ eas update --branch production
 - Przed uznaniem zadania mobile za skończone: sprawdź obsługę słabej sieci, odmowy
   uprawnień i stanu offline — to wymagania projektowe, nie "nice to have".
 - Sekrety zawsze przez `.env` / EAS secrets — nigdy hardkodowane w repo.
+
+---
+
+## 22. Stanowiska, przydziały i statusy dynamiczne — aktualne źródło prawdy
+
+Ta sekcja aktualizuje sekcje 4, 5, 6 i 14 tam, gdzie były z nimi sprzeczne. Pełny kontrakt HTTP
+(wraz z listą endpointów, których backend jeszcze nie ma) opisuje
+[`docs/frontend-api-contract.md`](./docs/frontend-api-contract.md).
+
+**Zastosowanie docelowe (TRACK A — tickets & dispatch): serwis wind dla wspólnot i spółdzielni
+mieszkaniowych.** Zgłaszają mieszkańcy i zarządy budynków, często **z wnętrza kabiny**. Z tego
+wynikają trzy dodatkowe pola `Report` i reguły wokół nich:
+
+```
+Report (uzupełnienie)
+ ├─ is_entrapment   bool    -- ktoś uwięziony w kabinie
+ ├─ site_address    string? -- adres budynku
+ └─ device_label    string? -- oznaczenie windy, np. „Winda A (kabina 1)”
+```
+
+- `is_entrapment = true` wymusza `urgency = critical` po stronie API i daje najwyższą wagę
+  w sortowaniu `ai_priority` (kolejka: uwięzienia przed pozostałymi zgłoszeniami).
+- `site_address` i `device_label` są widoczne dla wykonawcy **także przy zakresie danych
+  `minimal`** — bez adresu i oznaczenia urządzenia ekipa nie wyjedzie.
+- Wyszukiwanie w kolejce i na listach zgłoszeń obejmuje adres obiektu i oznaczenie windy.
+- Mapa obiektu jest wbudowana w ekran (`src/components/media/location-map.tsx`, kafle
+  OpenStreetMap, bez klucza API) — widoczna od razu u zgłaszającego, dyspozytora i pracownika;
+  nawigację odpala osobny deep link do Google/Apple Maps. Wymiana na `react-native-maps`
+  lub `expo-maps` wymaga klucza Google Maps dla Androida i aktualizacji `app.config.ts`.
+- Docelowo warto dodać rejestr obiektów i urządzeń (`sites`/`devices`) i powiązać z nim zgłoszenia,
+  żeby mieć historię konkretnej windy; dziś są to pola tekstowe zgłoszenia.
+
+**Model domenowy — uzupełnienie:**
+
+```
+Position                 -- stanowisko (technik, konsultant, ratownik, kierowca, prawnik, księgowy, …)
+ ├─ id, name, description, is_active
+
+PositionSuggestion       -- propozycja stanowiska złożona przez KLIENTA (nie nadaje uprawnień)
+ ├─ id, report_id, request_id (nullable), position_id, suggested_by_client_id
+ ├─ status[pending|accepted|replaced|rejected]
+ └─ reviewed_by_admin_id, reviewed_at, note
+
+Assignment               -- faktyczne przypisanie wykonawcy przez ADMINISTRATORA
+ ├─ id, report_id, request_id (nullable → cały Report)
+ ├─ assignee_type[staff|service], assignee_id, position_id (nullable)
+ ├─ data_scope            -- zakres udostępnionych danych (słownik z API)
+ ├─ instruction, assigned_by_admin_id, assigned_at
+ └─ revoked_at, completed_at, is_active
+
+StatusDefinition         -- entity_type[report|request], key, label, description, color,
+                            sort_order, is_initial, is_final, is_active
+StatusTransition         -- entity_type, from_status_id, to_status_id, allowed_roles,
+                            requires_note, requires_attachment, requires_confirmation
+```
+
+**Reguły nienaruszalne:**
+
+1. Klient **nie** wskazuje pracownika ani służby — może wyłącznie zaproponować **stanowisko**
+   (dla całego zgłoszenia i/lub dla poszczególnych requestów).
+2. Propozycja stanowiska nie daje żadnego dostępu — jest informacją dla administratora.
+3. Tylko administrator tworzy `Assignment` — pracownika, służbę albo oba jednocześnie,
+   do całego zgłoszenia albo do konkretnego requesta.
+4. Zgłoszenie **może** nie mieć żadnego przydziału — obsługę prowadzi wtedy sam administrator
+   (stan poprawny, nie błąd walidacji; zapisywany w historii).
+5. Dane wykonawcy stają się widoczne dla klienta **dopiero po aktywnym przydziale** i znikają po
+   jego cofnięciu (historia zostaje w audycie administratora).
+6. Pracownik przypisany tylko do requesta nie ma prawa do zmiany statusu całego zgłoszenia
+   ani do danych pozostałych requestów.
+7. Frontend renderuje akcje statusowe **wyłącznie** z odpowiedzi
+   `GET /api/v1/{reports|requests}/{id}/available-status-transitions`. Pusta lista → brak przycisku.
+   Zabronione są zaszyte przyciski typu „Jadę”, „Na miejscu”, „Przyjąłem”.
+8. Uprawnienia w UI pochodzą z pola `capabilities` w odpowiedzi API (komponent `PermissionGate`),
+   nie z roli sprawdzanej po stronie klienta.
+
+**Frontend (`/mobile`) — struktura wprowadzona dla tego modelu:**
+
+- `src/api/` — klient HTTP (Sanctum token, mapowanie błędów na `ApiError`), typy domenowe,
+  endpointy per zasób oraz **adapter demonstracyjny** `src/api/mock/` działający **tylko** przy
+  `__DEV__` i `EXPO_PUBLIC_API_MODE != live` (build produkcyjny zawsze uderza w prawdziwe API).
+- `src/auth/` — sesja (zustand) + token w `expo-secure-store`; `super_admin` korzysta z panelu admina.
+- `src/features/<rola>/` — ekrany; pliki w `app/` są cienkimi wrapperami tras.
+- `src/hooks/queries/` — TanStack Query per zasób (klucze w `src/api/query-keys.ts`).
+- `src/offline/` — stan sieci + kolejka operacji wysyłanych po odzyskaniu połączenia.
+- `src/realtime/` — Echo/Reverb + `apply-event.ts` mapujące zdarzenia na unieważnienie cache.
+- Zustand store'y trzymamy przy domenie (`src/auth`, `src/offline`), nie w jednym `src/stores`.
+- Testy akceptacyjne: `npx jest --selectProjects app` (nie wymagają backendu).
