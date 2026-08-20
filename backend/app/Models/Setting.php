@@ -38,6 +38,11 @@ class Setting extends Model
         return $setting === null ? $default : $setting->value;
     }
 
+    /**
+     * $userId is the author of THIS write, not a running "last human touched it"
+     * pointer. Null means a system write (seeder, job) with no human author, and
+     * deliberately replaces any previous attribution rather than carrying it forward.
+     */
     public static function put(string $key, mixed $value, ?int $userId = null): void
     {
         static::query()->updateOrCreate(

@@ -31,6 +31,8 @@ it('round-trips arbitrary json values', function () {
     Setting::put('sla.targets', ['critical' => 300, 'high' => 900]);
 
     expect(Setting::get('retention.location_pings_days'))->toBe(30);
+    // toEqual, not toBe: jsonb does not preserve object key order (unlike json),
+    // so the order-sensitive === behind toBe cannot pass here on any Postgres install.
     expect(Setting::get('sla.targets'))->toEqual(['critical' => 300, 'high' => 900]);
     expect(Setting::get('missing.key', 'fallback'))->toBe('fallback');
 });
@@ -39,4 +41,18 @@ it('ignores a stored sort mode that is no longer valid', function () {
     Setting::put(Setting::QUEUE_SORT_MODE, 'by_vibes');
 
     expect(Setting::queueSortMode())->toBe(QueueSortMode::Fifo);
+});
+
+it('attributes a setting to whoever made the most recent write', function () {
+    $admin = User::factory()->superAdmin()->create();
+
+    Setting::setQueueSortMode(QueueSortMode::AiPriority, $admin->id);
+    expect(Setting::query()->find(Setting::QUEUE_SORT_MODE)->updated_by_user_id)
+        ->toBe($admin->id);
+
+    // A system write (seeder, job) has no human author, so attribution resets to
+    // null rather than carrying the previous admin forward and misattributing it.
+    Setting::setQueueSortMode(QueueSortMode::Fifo);
+    expect(Setting::query()->find(Setting::QUEUE_SORT_MODE)->updated_by_user_id)
+        ->toBeNull();
 });
