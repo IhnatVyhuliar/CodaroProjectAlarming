@@ -5685,7 +5685,7 @@ CLAUDE.md §21 requires the spec to be updated whenever roles, statuses or the d
 - Consumes: everything.
 - Produces: a spec that matches the database, and a test that fails if a future migration drops a required table.
 
-- [ ] **Step 1: Write the integrity test**
+- [x] **Step 1: Write the integrity test**
 
 `backend/tests/Feature/Schema/SchemaIntegrityTest.php`:
 
@@ -5777,12 +5777,12 @@ it('cascades a report deletion through every child table', function () {
 
 The `indexdef` assertion depends on how Postgres renders the predicate. Run the test once and, if the string differs, paste the real `indexdef` into the expectation rather than loosening it to a substring like `WHERE`.
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 Run: `docker compose -f docker/docker-compose.yml exec -T app ./vendor/bin/pest tests/Feature/Schema/SchemaIntegrityTest.php`
 Expected: PASS, 37 tests.
 
-- [ ] **Step 3: Update CLAUDE.md section 4**
+- [x] **Step 3: Update CLAUDE.md section 4**
 
 Replace the `User` block in the section 4 code fence with:
 
@@ -5826,7 +5826,7 @@ NotificationDelivery    -- ślad wysyłki push (ticket/receipt Expo)
 
 Also note on `Report`: `priority_weight` is a generated column (`low=1 … critical=4`) and `queued_at` is the FIFO key, separate from `created_at`.
 
-- [ ] **Step 4: Update CLAUDE.md section 7**
+- [x] **Step 4: Update CLAUDE.md section 7**
 
 Replace the "Implementacja wyboru trybu" block with:
 
@@ -5840,7 +5840,7 @@ natychmiast wszystkich adminów (broadcast `QueueSortModeChanged`).
 - `User.queue_sort_preference` NIE istnieje (świadoma zmiana wobec pierwotnej notatki).
 ```
 
-- [ ] **Step 5: Update CLAUDE.md section 10**
+- [x] **Step 5: Update CLAUDE.md section 10**
 
 Replace the first line with:
 
@@ -5852,11 +5852,11 @@ Flow: `expo-notifications` rejestruje token → zapis jako wiersz w `device_toke
 `settled_at`, a `DeviceNotRegistered` wyłącza dany `DeviceToken`.
 ```
 
-- [ ] **Step 6: Update CLAUDE.md section 1 glossary**
+- [x] **Step 6: Update CLAUDE.md section 1 glossary**
 
 Add rows: `Stanowisko/służba → StaffRole` (already present — correct the "logika" note), `Typ żądania → RequestType`, `Ustawienie globalne → Setting`, `Token urządzenia → DeviceToken`, `Historia edycji → ReportRevision`, `Historia przypisań → ReportAssignment`.
 
-- [ ] **Step 7: Run the entire suite from scratch**
+- [x] **Step 7: Run the entire suite from scratch**
 
 ```bash
 docker compose -f docker/docker-compose.yml exec -T app php artisan migrate:fresh --seed
@@ -5865,7 +5865,7 @@ docker compose -f docker/docker-compose.yml exec -T app ./vendor/bin/pint --test
 ```
 Expected: migrations and seeders complete without error; **all** Pest tests pass; Pint reports no style issues.
 
-- [ ] **Step 8: Verify rollback of the whole stack**
+- [x] **Step 8: Verify rollback of the whole stack**
 
 ```bash
 docker compose -f docker/docker-compose.yml exec -T app php artisan migrate:fresh
@@ -5874,7 +5874,7 @@ docker compose -f docker/docker-compose.yml exec -T postgres psql -U app -d app 
 ```
 Expected: only `users`, `password_reset_tokens`, `sessions`, `cache`, `cache_locks`, `jobs`, `job_batches`, `failed_jobs`, `personal_access_tokens`, `migrations` remain. Then `php artisan migrate` brings everything back.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 docker compose -f docker/docker-compose.yml exec -T app ./vendor/bin/pint

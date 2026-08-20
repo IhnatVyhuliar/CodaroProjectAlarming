@@ -60,7 +60,12 @@ Warstwa domenowa nazywana jest po polsku w rozmowach z klientem/produktem, ale k
 | Transmisja lokalizacji            | `LocationStream` / `LocationPing` | |
 | Transmisja obrazu/dźwięku         | `MediaStreamSession`     | |
 | Kolejka globalna                  | `ReportQueue`            | logika, nie osobna tabela |
-| Stanowisko/służba                 | `StaffRole` / `Position` | powiązanie kategoria ↔ służba |
+| Stanowisko/służba                 | `StaffRole`              | tabela danych (nie enum), powiązanie kategoria ↔ służba |
+| Typ żądania                       | `RequestType`            | tabela danych (nie enum), typ pod-zadania w ramach `Request` |
+| Ustawienie globalne               | `Setting`                | wiersz klucz/wartość, np. `queue.sort_mode` — patrz sekcja 7 |
+| Token urządzenia                  | `DeviceToken`            | jeden na urządzenie, zastępuje `User.push_token` — patrz sekcja 10 |
+| Historia edycji                   | `ReportRevision`         | append-only, zmiany pól zgłoszenia — inna sprawa niż `ReportStatusHistory` |
+| Historia przypisań                | `ReportAssignment`       | append-only, źródło analityki obciążenia adminów/ratowników |
 
 ---
 
@@ -141,8 +146,9 @@ README.md
 User
  ├─ id, name, email, phone, role[client|admin|super_admin|staff]
  ├─ admin_status[active|manual]        -- tylko dla admina (auto-przydział vs wybór)
- ├─ queue_sort_preference[fifo|client_priority|ai_priority]  -- domyślne sortowanie kolejki (admin), default: fifo
- └─ push_token
+ ├─ staff_role_id                      -- stanowisko/służba (tylko dla staff)
+ └─ is_active, locale, last_seen_at, metadata
+    -- push_token NIE jest kolumną: patrz DeviceToken (obsługa wielu urządzeń)
 
 Category
  ├─ id, name, staff_role_id (jaka służba obsługuje tę kategorię)
@@ -152,10 +158,12 @@ Report
  ├─ name, description
  ├─ status[new|assigned|in_progress|waiting|closed|rejected]
  ├─ priority[low|medium|high|critical]  -- wskazany przez klienta przy tworzeniu
+ ├─ priority_weight                     -- kolumna generowana (low=1 … critical=4), do sortowania kolejki
  ├─ ai_priority (float/int)             -- wyliczany automatycznie przez AI
  ├─ location_mode[one_time|streaming]
  ├─ location_lat, location_lng, location_updated_at
  ├─ assigned_admin_id, assigned_staff_id
+ ├─ queued_at                           -- klucz sortowania FIFO, osobny od created_at
  ├─ created_at, closed_at
 
 Request  (pod-zadanie w ramach Report)
@@ -175,6 +183,31 @@ LocationPing            -- historia lokalizacji przy trybie "streaming"
 
 MediaStreamSession       -- sesja transmisji kamera/mikrofon (LiveKit room)
  ├─ id, report_id, room_name, started_at, ended_at, recording_url
+
+StaffRole               -- stanowisko / służba (dane, nie enum)
+ ├─ id, slug, name, is_external, sort_order, is_active
+
+RequestType             -- typ pod-zadania (dane, nie enum)
+ ├─ id, slug, name, staff_role_id, requires_staff|amount|scheduled_at
+
+Setting                 -- globalna konfiguracja (klucz/wartość)
+ ├─ key, value(jsonb), updated_by_user_id
+ -- queue.sort_mode = globalny tryb sortowania kolejki
+
+ReportRevision          -- historia edycji pól zgłoszenia (append-only)
+ ├─ id, report_id, user_id, changes(jsonb), created_at
+
+ReportAssignment        -- historia przypisań (append-only), źródło analityki
+ ├─ id, report_id, user_id, role[admin|staff], assigned_at, unassigned_at
+
+LocationStream          -- sesja transmisji lokalizacji (start/stop)
+ ├─ id, report_id, started_by_user_id, started_at, ended_at, ping_count
+
+DeviceToken             -- token push per urządzenie (zastępuje User.push_token)
+ ├─ id, user_id, token, platform[ios|android|web], is_active, disabled_reason
+
+NotificationDelivery    -- ślad wysyłki push (ticket/receipt Expo)
+ ├─ id, notification_id, user_id, device_token_id, channel, status
 ```
 
 ---
@@ -231,7 +264,7 @@ Każda zmiana **musi** tworzyć wpis w `ReportStatusHistory` i wywoływać:
 **Kolejka globalna** = wszystkie `Report` w statusie `new`. Panel admina ma
 przełącznik sortowania kolejki z **3 opcjami**:
 
-1. **Po kolei (FIFO)** — sortowanie po `created_at`. **Tryb domyślny.**
+1. **Po kolei (FIFO)** — sortowanie po `queued_at`. **Tryb domyślny.**
 2. **Według priorytetu klienta** — sortowanie po `priority`, czyli wartości, którą
    klient sam wskazuje przy tworzeniu zgłoszenia (`low|medium|high|critical`).
 3. **Według AI** — sortowanie po `ai_priority`, wyliczanym automatycznie przez
@@ -239,11 +272,13 @@ przełącznik sortowania kolejki z **3 opcjami**:
    w opisie, obecności zdjęć/streamu, historii klienta (czy zdarzały się fałszywe
    zgłoszenia), pory dnia.
 
-Implementacja wyboru trybu:
-- parametr query na endpointzie kolejki: `GET /api/v1/queue?sort=fifo|client_priority|ai_priority`
-  (domyślnie `fifo`, gdy parametr pominięty);
-- opcjonalnie zapamiętywany jako `User.queue_sort_preference` (patrz sekcja 4), żeby
-  admin nie musiał wybierać trybu przy każdym wejściu do panelu.
+Tryb sortowania jest **globalny dla całej organizacji** — nie jest preferencją
+pojedynczego administratora. Przechowywany jako wiersz `queue.sort_mode`
+w tabeli `settings`; zmienia go hiperadministrator, a zmiana obowiązuje
+natychmiast wszystkich adminów (broadcast `QueueSortModeChanged`).
+
+- endpoint kolejki: `GET /api/v1/queue` — bez parametru `sort`;
+- `User.queue_sort_preference` NIE istnieje (świadoma zmiana wobec pierwotnej notatki).
 
 **Tryb admina** (niezależny od sortowania kolejki):
 - `active` — po zakończeniu poprzedniego zgłoszenia system automatycznie przydziela
@@ -392,9 +427,11 @@ zasięgu i jest prostsza do zaimplementowania jako pierwsza wersja.
 
 ## 10. Powiadomienia push
 
-Flow: `expo-notifications` rejestruje `push_token` → zapis w `User.push_token` →
-backend wysyła przez `expo-server-sdk-php` w listenerze eventu (np. na
-`ReportStatusChanged` wysyłany Job `SendPushNotificationJob`, w kolejce, nie synchronicznie).
+Flow: `expo-notifications` rejestruje token → zapis jako wiersz w `device_tokens`
+(jeden na urządzenie, `platform` + `is_active`) → backend wysyła przez
+`expo-server-sdk-php` w Jobie. Każda próba wysyłki zapisywana w
+`notification_deliveries` wraz z ticketem Expo; odczyt receipta oznacza
+`settled_at`, a `DeviceNotRegistered` wyłącza dany `DeviceToken`.
 
 Reguła: **klient dostaje powiadomienie przy KAŻDEJ zmianie statusu swojego zgłoszenia**;
 ratownik/admin — przy przypisaniu i przy nowych zgłoszeniach w jego kolejce (jeśli
