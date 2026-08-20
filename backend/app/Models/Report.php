@@ -3,10 +3,12 @@
 namespace App\Models;
 
 use App\Enums\LocationMode;
+use App\Enums\QueueSortMode;
 use App\Enums\ReportPriority;
 use App\Enums\ReportStatus;
 use Database\Factories\ReportFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -182,5 +184,35 @@ class Report extends Model
     public function liveMediaStreams(): HasMany
     {
         return $this->mediaStreamSessions()->live();
+    }
+
+    /** The global queue: everything waiting for an operator. @param  Builder<$this>  $query */
+    public function scopeInQueue(Builder $query): void
+    {
+        $query->where('status', ReportStatus::New);
+    }
+
+    /**
+     * The three orderings from CLAUDE.md section 7. Each matches one of the
+     * partial indexes created with this table.
+     *
+     * @param  Builder<$this>  $query
+     */
+    public function scopeSortedForQueue(Builder $query, QueueSortMode $mode): void
+    {
+        match ($mode) {
+            QueueSortMode::Fifo => $query
+                ->orderBy('queued_at')
+                ->orderBy('id'),
+            QueueSortMode::ClientPriority => $query
+                ->orderByDesc('priority_weight')
+                ->orderBy('queued_at')
+                ->orderBy('id'),
+            // Unscored reports rank last, then fall back to arrival order.
+            QueueSortMode::AiPriority => $query
+                ->orderByRaw('ai_priority DESC NULLS LAST')
+                ->orderBy('queued_at')
+                ->orderBy('id'),
+        };
     }
 }
