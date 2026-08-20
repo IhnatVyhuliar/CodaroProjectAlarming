@@ -8,6 +8,10 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 
 Route::prefix('v1')->group(function () {
+    Route::get('/health', function () {
+        return response()->json(['status' => 'ok']);
+    });
+
     Route::middleware('auth:sanctum')->group(function () {
         // Domain routes (reports, requests, categories, queue, ...) — future work.
     });
