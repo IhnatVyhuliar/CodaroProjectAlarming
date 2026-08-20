@@ -48,7 +48,7 @@ it('refuses to write priority_weight directly', function () {
     $report = Report::factory()->create();
 
     DB::table('reports')->where('id', $report->id)->update(['priority_weight' => 99]);
-})->throws(QueryException::class);
+})->throws(QueryException::class, 'can only be updated to DEFAULT');
 
 it('refuses unknown statuses, priorities and location modes', function (string $column, string $value) {
     $report = Report::factory()->create();

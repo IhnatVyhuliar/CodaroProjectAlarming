@@ -85,6 +85,13 @@ return new class extends Migration
             "'ZG-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('reports_reference_seq')::text, 6, '0')"
         );
 
+        // Ties the sequence's lifetime to the table: `db:wipe` (used by `migrate:fresh`,
+        // which RefreshDatabase runs at the start of every fresh test process) issues
+        // `DROP TABLE reports CASCADE`, and an owned sequence is dropped along with the
+        // table it's owned by. Without this, the sequence outlives every migrate:fresh
+        // and reference numbers keep climbing across otherwise-fresh runs.
+        DB::statement('ALTER SEQUENCE reports_reference_seq OWNED BY reports.id');
+
         CheckConstraint::enum('reports', 'status', ReportStatus::values());
         CheckConstraint::enum('reports', 'priority', ReportPriority::values());
         CheckConstraint::enum('reports', 'location_mode', LocationMode::values());
